@@ -1,142 +1,94 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Data.SqlClient;
+using System.Linq;
 using System.Net;
 
-public class IPAddressChecker
+public class IPRangeChecker
 {
-    static void Main(string[] args)
+    private readonly string[] ipRanges; // Assuming this is the stored list of IP ranges
+
+    public IPRangeChecker()
     {
-        string ipAddress = "192.168.1.00";
-        List<string> ipRanges = new List<string>()
+        // Initialize the list of IP ranges
+        ipRanges = new string[]
         {
-            "192.168.1.1",
-            "192.168.1.0/24",
-            "10.0.0.0/8",
-            "172.16.0.0/12"
+            "10.0.0.0/16",
+            "172.16.0.0/12",
+            "10.168.1.1",
+            "198.51.100.0 - 198.51.100.100",
+            "192.168.1.0/24"
         };
-
-        bool isInRange = IPAddressChecker.IsIPInRange(ipAddress, ipRanges);
-
-        if (isInRange)
-        {
-            Console.WriteLine("The IP address is within the specified ranges.");
-        }
-        else
-        {
-            Console.WriteLine("The IP address is not within the specified ranges.");
-        }
-
-        Console.ReadLine();
-
     }
 
-    public static bool IsIPInRange(string ipAddress, List<string> ipRanges)
+    public bool IsAddressInRanges(string ipAddress)
     {
-        IPAddress address;
-        if (!IPAddress.TryParse(ipAddress, out address))
+        // Convert the provided IP address to an IPAddress object
+        if (!IPAddress.TryParse(ipAddress, out IPAddress address))
         {
-            Console.WriteLine("Invalid IP address format.");
-            return false;
+            throw new ArgumentException("Invalid IP address format.");
         }
 
-        foreach (string range in ipRanges)
+        // Check if the provided IP address is within any of the stored IP ranges
+        foreach (var range in ipRanges)
         {
-            string[] rangeParts = range.Split('/');
-            string rangeStart = rangeParts[0];
-            int prefixLength = 32;
-
-            if (rangeParts.Length == 2 && !int.TryParse(rangeParts[1], out prefixLength))
+            if (IsAddressInRange(address, range))
             {
-                Console.WriteLine("Invalid CIDR format.");
-                continue;
+                return true;
             }
-
-            IPAddress startAddress;
-            if (!IPAddress.TryParse(rangeStart, out startAddress))
-            {
-                Console.WriteLine("Invalid IP range start address format.");
-                continue;
-            }
-
-            if (address.AddressFamily != startAddress.AddressFamily)
-            {
-                Console.WriteLine("IP address and range start address have different address families.");
-                continue;
-            }
-
-            uint ipAddressValue = BitConverter.ToUInt32(address.GetAddressBytes(), 0);
-            uint startAddressValue = BitConverter.ToUInt32(startAddress.GetAddressBytes(), 0);
-
-            if (prefixLength == 32 && ipAddressValue == startAddressValue)
-            {
-                return true; // Single IP address match
-            }
-
-            uint subnetMask = prefixLength == 32 ? uint.MaxValue : ~(uint.MaxValue >> prefixLength);
-
-            if ((ipAddressValue & subnetMask) == (startAddressValue & subnetMask))
-            {
-                return true; // IP address is within the range or CIDR range
-            }
-        }
-
-        return false; // No match found
-    }
-
-    //Using SQL database data
-    public bool IsIPAddressInRangeSQL(string ipAddress)
-    {
-        IPAddress targetAddress;
-        if (!IPAddress.TryParse(ipAddress, out targetAddress))
-        {
-            throw new ArgumentException("Invalid IP address format.", nameof(ipAddress));
-        }
-
-        using (SqlConnection connection = new SqlConnection("connection string"))
-        {
-            connection.Open();
-
-            string query = "SELECT StartIP, EndIP FROM IPRangeTable";
-            SqlCommand command = new SqlCommand(query, connection);
-            SqlDataReader reader = command.ExecuteReader();
-
-            while (reader.Read())
-            {
-                IPAddress startIP = IPAddress.Parse(reader["StartIP"].ToString());
-                IPAddress endIP = IPAddress.Parse(reader["EndIP"].ToString());
-
-                if (IsIPAddressInRangeSQL(targetAddress, startIP, endIP))
-                {
-                    reader.Close();
-                    return true;
-                }
-            }
-
-            reader.Close();
         }
 
         return false;
     }
-    private bool IsIPAddressInRangeSQL(IPAddress targetAddress, IPAddress startIP, IPAddress endIP)
+
+    private bool IsAddressInRange(IPAddress address, string range)
     {
-        byte[] targetBytes = targetAddress.GetAddressBytes();
-        byte[] startBytes = startIP.GetAddressBytes();
-        byte[] endBytes = endIP.GetAddressBytes();
-
-        bool isInRange = true;
-
-        for (int i = 0; i < targetBytes.Length; i++)
+        // Parse the IP range or CIDR notation
+        if (range.Contains("/"))
         {
-            if (targetBytes[i] < startBytes[i] || targetBytes[i] > endBytes[i])
-            {
-                isInRange = false;
-                break;
-            }
-        }
+            string[] parts = range.Split('/');
 
-        return isInRange;
+            int IP_addr = BitConverter.ToInt32(IPAddress.Parse(address.ToString()).GetAddressBytes(), 0);
+            int CIDR_addr = BitConverter.ToInt32(IPAddress.Parse(parts[0]).GetAddressBytes(), 0);
+            int CIDR_mask = IPAddress.HostToNetworkOrder(-1 << (32 - int.Parse(parts[1])));
+
+            return ((IP_addr & CIDR_mask) == (CIDR_addr & CIDR_mask));
+
+
+        }
+        else if (range.Contains("-"))
+        {
+            // Range of IP addresses
+            var startAddress = range.Split('-')[0].Trim();
+            var endAddress = range.Split('-')[1].Trim();
+
+            long ipStart = BitConverter.ToInt32(IPAddress.Parse(startAddress).GetAddressBytes().Reverse().ToArray(), 0);
+
+            long ipEnd = BitConverter.ToInt32(IPAddress.Parse(endAddress).GetAddressBytes().Reverse().ToArray(), 0);
+
+            long ip = BitConverter.ToInt32(address.GetAddressBytes().Reverse().ToArray(), 0);
+
+            return ip >= ipStart && ip <= ipEnd; //edited
+
+
+        }
+        else
+        {
+            // Single IP address
+            var target = IPAddress.Parse(range);
+            return address.Equals(target);
+        }
+    }
+
+    static void Main(string[] args)
+    {
+
+        IPRangeChecker checker = new IPRangeChecker();
+
+        bool ans = checker.IsAddressInRanges("10.168.1.1");
+        Console.WriteLine($"Is in the range? {ans}");
+        Console.ReadLine();
     }
 
 
 }
+
+
