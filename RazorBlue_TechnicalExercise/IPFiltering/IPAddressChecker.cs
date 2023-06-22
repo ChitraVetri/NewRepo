@@ -66,7 +66,7 @@ public class IPRangeChecker
 
             long ip = BitConverter.ToInt32(address.GetAddressBytes().Reverse().ToArray(), 0);
 
-            return ip >= ipStart && ip <= ipEnd; //edited
+            return ip >= ipStart && ip <= ipEnd;
 
 
         }
@@ -87,8 +87,4 @@ public class IPRangeChecker
         Console.WriteLine($"Is in the range? {ans}");
         Console.ReadLine();
     }
-
-
 }
-
-
